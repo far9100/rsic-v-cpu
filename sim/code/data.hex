@@ -1,0 +1,13 @@
+// Initial data for the array to be sorted
+// Stored starting at address 0x100 (word addressing in hex file)
+@00000040 // 0x100 / 4 = 0x40 (Word address for $readmemh)
+00000005 // data_mem[0x40] = 5
+00000002 // data_mem[0x41] = 2
+00000008 // data_mem[0x42] = 8
+00000001 // data_mem[0x43] = 1
+00000009 // data_mem[0x44] = 9
+00000004 // data_mem[0x45] = 4
+00000007 // data_mem[0x46] = 7
+00000003 // data_mem[0x47] = 3
+00000006 // data_mem[0x48] = 6
+00000000 // data_mem[0x49] = 0
