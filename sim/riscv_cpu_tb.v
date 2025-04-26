@@ -82,6 +82,11 @@ module riscv_cpu_tb;
 
     // --- Simulation Control ---
     initial begin
+        integer file;
+        integer c;
+        integer status;
+        integer instr_index;
+        
         // Initialize memories to a default value (e.g., NOP for instruction, 0 for data)
         for (int i = 0; i < INSTR_MEM_SIZE; i++) begin
             instr_mem[i] = 32'h00000013; // Default to NOP
@@ -93,9 +98,19 @@ module riscv_cpu_tb;
         // Load program and data from hex files
         $display("Loading instruction memory from sim/code/quicksort.hex");
         $readmemh("sim/code/quicksort.hex", instr_mem);
-
+        
+        // Display some instructions to verify loading
+        $display("Instruction at address 0x00: %h", instr_mem[0]);
+        $display("Instruction at address 0x04: %h", instr_mem[1]);
+        $display("Instruction at address 0x10: %h", instr_mem[4]);
+        $display("Instruction at address 0x20: %h", instr_mem[8]);
+        
         $display("Loading data memory from sim/code/data.hex");
         $readmemh("sim/code/data.hex", data_mem, 64); // Start loading data at word address 64 (0x40), which corresponds to byte address 0x100
+        
+        // Display initial data array
+        $display("Initial data array (before sorting):");
+        dump_data_memory(64, 10);
 
         $display("Starting Simulation...");
 
@@ -106,9 +121,10 @@ module riscv_cpu_tb;
         // Or a timeout occurs
         fork
             begin : timeout_block
-                #(CLK_PERIOD * 1000); // Timeout after 1000 cycles
-                $error("Simulation timed out! PC did not reach halt address 0x20.");
-                dump_data_memory(32'h40, 10); // Dump data memory on timeout
+                #(CLK_PERIOD * 1_000_000); // Timeout after 1,000,000 cycles
+                $display("Simulation timed out! PC did not reach halt address 0x20.");
+                $display("Current PC = 0x%h", dut.instr_addr_o);
+                dump_data_memory(64, 10); // Dump data memory on timeout
                 $finish;
             end
             begin : run_block

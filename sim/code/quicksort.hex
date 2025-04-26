@@ -1,21 +1,64 @@
-@00000000
-00002137 // lui sp, 0x2
-00010113 // addi sp, sp, 0 ; sp = 0x800
-00000537 // lui a0, 0x0
-10050513 // addi a0, a0, 256 ; a0 = 0x100 (array base)
-00a00293 // li t0, 10       ; t0 = 10 (size)
-00000593 // mv a1, zero     ; a1 = 0 (low)
-fff28613 // addi a2, t0, -1 ; a2 = 9 (high)
-010000ef // jal ra, 0x20 <halt> ; Jump to halt loop for now
-// Fill with NOPs until halt
-00000013 // NOP
-00000013 // NOP
-00000013 // NOP
-00000013 // NOP
-00000013 // NOP
-00000013 // NOP
-00000013 // NOP
-00000013 // NOP
-// Halt Loop
-@00000020
-0000006f // j 0x20 <halt>
+// Instruction memory for quicksort algorithm
+// No @ symbols or comments are allowed within the hex data
+
+// Main code at address 0x00
+00002137
+00010113
+00000537
+10050513
+00a00593
+050000ef
+0c0000ef
+00000013 // NOP to align next section at 0x10
+00000013
+00000013
+00000013
+00000013
+00000013
+00000013
+00000013
+00000013
+
+// Quicksort function at address 0x10 (word address 4)
+fe010113
+00112e23
+00a12c23
+00b12a23
+00100893
+00b8d463
+
+// Outer loop
+00088813
+0100006f
+
+// Inner loop
+01852503
+00281293
+00550533
+00052303
+ffc52e03
+01c35a63
+
+00052383
+ffc52e03
+01c52023
+fe752e23
+
+fff80813
+
+00100793
+0107d463
+
+00188893
+01b8c463
+
+01c12083
+02010113
+00008067
+
+00000013 // NOP to align next section at 0x20
+00000013
+00000013
+
+// Halt loop at address 0x20 (word address 8)
+0000006f

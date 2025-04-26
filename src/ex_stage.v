@@ -68,18 +68,13 @@ module ex_stage (
                 3'b000: branch_condition_met_o = alu_zero;         // BEQ: taken if zero
                 3'b001: branch_condition_met_o = ~alu_zero;        // BNE: taken if not zero
                 3'b100: branch_condition_met_o = alu_sign;         // BLT: taken if negative (rs1 < rs2 signed)
-                3'b101: branch_condition_met_o = ~alu_sign;        // BGE: taken if not negative (rs1 >= rs2 signed)
-                3'b110: branch_condition_met_o = alu_sign;         // BLTU: taken if negative (rs1 < rs2 unsigned - check ALU SLTU result?)
-                                                                    // Correction: Branch uses SUB result. For unsigned, taken if rs1 < rs2 -> result is negative *if* we treat operands as signed during SUB, OR if carry-out is 0.
-                                                                    // Simpler: RISC-V spec says BLTU uses SLTU condition. Let's assume ALU provides necessary flags or we compare directly.
-                                                                    // For now, let's use a simplified check based on SUB result sign, which is incorrect for unsigned.
-                                                                    // TODO: Implement proper unsigned comparison check for BLTU/BGEU. Using SLTU result from ALU would be better.
-                3'b111: branch_condition_met_o = ~alu_sign;        // BGEU: taken if not negative (rs1 >= rs2 unsigned) - see BLTU note.
+                3'b101: branch_condition_met_o = ~alu_sign | alu_zero; // BGE: taken if not negative or zero (rs1 >= rs2 signed)
+                3'b110: branch_condition_met_o = ~(rs1_data_i >= rs2_data_i); // BLTU: taken if rs1 < rs2 unsigned
+                3'b111: branch_condition_met_o = (rs1_data_i >= rs2_data_i);  // BGEU: taken if rs1 >= rs2 unsigned
                 default: branch_condition_met_o = 1'b0;
             endcase
         end
     end
-    // TODO: Refine BLTU/BGEU condition evaluation. Requires ALU to potentially output unsigned comparison result or carry flag.
 
     // Output Assignments
     assign alu_result_o = alu_result;

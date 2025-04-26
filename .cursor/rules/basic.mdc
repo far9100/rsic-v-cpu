@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+模擬時請使用此版本 iverilog -g2012
