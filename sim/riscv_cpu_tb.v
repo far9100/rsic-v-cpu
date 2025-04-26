@@ -108,7 +108,7 @@ module riscv_cpu_tb;
             begin : timeout_block
                 #(CLK_PERIOD * 1000); // Timeout after 1000 cycles
                 $error("Simulation timed out! PC did not reach halt address 0x20.");
-                dump_data_memory(0x40, 10); // Dump data memory on timeout
+                dump_data_memory(32'h40, 10); // Dump data memory on timeout
                 $finish;
             end
             begin : run_block
@@ -122,19 +122,19 @@ module riscv_cpu_tb;
         // --- Verification (Basic Check) ---
         if (dut.instr_addr_o == 32'h00000020) begin
             $display("Verification PASSED: PC reached the halt loop.");
-        else
+        end else begin
             $error("Verification FAILED: PC did not reach the halt loop (PC = 0x%h).", dut.instr_addr_o);
         end
 
         // Dump final data memory state (first 10 elements of the array)
-        dump_data_memory(0x40, 10);
+        dump_data_memory(32'h40, 10);
 
         $display("Simulation finished at time %0t", $time);
         $finish; // End simulation
     end
 
     // Task to dump a portion of data memory
-    task dump_data_memory (input integer start_word_addr, input integer num_words); // Use integer for compatibility
+    task dump_data_memory (input [31:0] start_word_addr, input [31:0] num_words); // Use integer for compatibility
         $display("--- Data Memory Dump (Word Addr: %0d to %0d) ---", start_word_addr, start_word_addr + num_words - 1);
         for (integer i = 0; i < num_words; i++) begin // Use integer for compatibility
             $display("Mem[0x%h (Word %0d)]: 0x%h (%0d)",

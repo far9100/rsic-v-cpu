@@ -22,7 +22,7 @@ module alu (
 
     logic [31:0] result_comb; // Combinational result
 
-    always_comb begin
+    always @(*) begin
         case (alu_op_i)
             ALU_OP_ADD:  result_comb = operand_a_i + operand_b_i;
             ALU_OP_SUB:  result_comb = operand_a_i - operand_b_i;
