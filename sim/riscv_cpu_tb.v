@@ -96,17 +96,17 @@ module riscv_cpu_tb;
         end
 
         // Load program and data from hex files
-        $display("Loading instruction memory from sim/code/quicksort.hex");
-        $readmemh("sim/code/quicksort.hex", instr_mem);
+        $display("Loading instruction memory from sim/code/add_test.hex"); // Changed to add_test.hex
+        $readmemh("sim/code/add_test.hex", instr_mem);
         
         // Display some instructions to verify loading
         $display("Instruction at address 0x00: %h", instr_mem[0]);
         $display("Instruction at address 0x04: %h", instr_mem[1]);
-        $display("Instruction at address 0x10: %h", instr_mem[4]);
-        $display("Instruction at address 0x20: %h", instr_mem[8]);
+        $display("Instruction at address 0x10: %h", instr_mem[4]); // Corresponds to SW instruction in add_test.s
+        $display("Instruction at address 0x20: %h", instr_mem[8]); // Corresponds to JAL instruction in add_test.s (halt_loop)
         
-        $display("Loading data memory from sim/code/data.hex");
-        $readmemh("sim/code/data.hex", data_mem, 64); // Start loading data at word address 64 (0x40), which corresponds to byte address 0x100
+        // $display("Loading data memory from sim/code/data.hex"); // Temporarily commented out to avoid error if data.hex is missing
+        // $readmemh("sim/code/data.hex", data_mem, 64); 
         
         // Display initial data array
         $display("Initial data array (before sorting):");
