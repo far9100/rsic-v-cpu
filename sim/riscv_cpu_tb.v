@@ -86,6 +86,8 @@ module riscv_cpu_tb;
         integer c;
         integer status;
         integer instr_index;
+        logic [31:0] expected_result; // Moved declaration
+        logic [31:0] actual_result;   // Moved declaration
         
         // Initialize memories to a default value (e.g., NOP for instruction, 0 for data)
         for (int i = 0; i < INSTR_MEM_SIZE; i++) begin
@@ -96,14 +98,15 @@ module riscv_cpu_tb;
         end
 
         // Load program and data from hex files
-        $display("Loading instruction memory from sim/code/add_test.hex"); // Changed to add_test.hex
-        $readmemh("sim/code/add_test.hex", instr_mem);
+        $display("Loading instruction memory from sim/code/mul_test.hex"); // Changed to mul_test.hex
+        $readmemh("sim/code/mul_test.hex", instr_mem);
         
         // Display some instructions to verify loading
-        $display("Instruction at address 0x00: %h", instr_mem[0]);
-        $display("Instruction at address 0x04: %h", instr_mem[1]);
-        $display("Instruction at address 0x10: %h", instr_mem[4]); // Corresponds to SW instruction in add_test.s
-        $display("Instruction at address 0x20: %h", instr_mem[8]); // Corresponds to JAL instruction in add_test.s (halt_loop)
+        $display("Instruction at address 0x00: %h", instr_mem[0]); // ADDI x5, x0, 5
+        $display("Instruction at address 0x04: %h", instr_mem[1]); // ADDI x6, x0, 3
+        $display("Instruction at address 0x10 (loop): %h", instr_mem[4]); // BEQ x6, x10, end_loop
+        $display("Instruction at address 0x20 (end_loop): %h", instr_mem[8]); // ADDI x8, x0, 0x104
+        $display("Instruction at address 0x28 (halt_loop): %h", instr_mem[10]); // JAL x0, halt_loop
         
         // $display("Loading data memory from sim/code/data.hex"); // Temporarily commented out to avoid error if data.hex is missing
         // $readmemh("sim/code/data.hex", data_mem, 64); 
@@ -117,29 +120,41 @@ module riscv_cpu_tb;
         // Wait for reset to deassert
         wait (rst == 0);
 
-        // Run simulation until the program counter reaches the halt address (0x20)
+        // Run simulation until the program counter reaches the halt address (0x28 for mul_test.s)
         // Or a timeout occurs
         fork
             begin : timeout_block
                 #(CLK_PERIOD * 1_000_000); // Timeout after 1,000,000 cycles
-                $display("Simulation timed out! PC did not reach halt address 0x20.");
+                $display("Simulation timed out! PC did not reach halt address 0x28.");
                 $display("Current PC = 0x%h", dut.instr_addr_o);
                 dump_data_memory(64, 10); // Dump data memory on timeout
                 $finish;
             end
             begin : run_block
-                wait (dut.instr_addr_o == 32'h00000020); // Wait until PC reaches the halt loop address
+                wait (dut.instr_addr_o == 32'h00000028); // Wait until PC reaches the halt loop address for mul_test
                 #(CLK_PERIOD * 2); // Wait a couple more cycles for pipeline to settle
-                $display("PC reached halt address 0x20 at time %0t", $time);
+                $display("PC reached halt address 0x28 at time %0t", $time);
                 disable timeout_block; // Disable timeout if halt is reached
             end
         join
 
         // --- Simplified Verification ---
-        if (dut.instr_addr_o == 32'h00000020) begin
-            $display("Verification PASSED: PC reached the halt loop at 0x20.");
+        if (dut.instr_addr_o == 32'h00000028) begin // Check for new halt address
+            $display("Verification PASSED: PC reached the halt loop at 0x28.");
         end else begin
             $error("Verification FAILED: PC did not reach the halt loop (PC = 0x%h).", dut.instr_addr_o);
+        end
+
+        // Add check for multiplication result
+        // Declarations moved to the top of the initial block
+
+        expected_result = 32'd15; // 5 * 3
+        actual_result = data_mem[65]; // Word address 65 (0x104)
+
+        if (actual_result == expected_result) begin
+            $display("Multiplication Result PASSED: Mem[0x104] = 0x%h (Expected: 0x%h)", actual_result, expected_result);
+        end else begin
+            $error("Multiplication Result FAILED: Mem[0x104] = 0x%h (Expected: 0x%h)", actual_result, expected_result);
         end
 
         // Dump final data memory state (first 10 elements of the array)

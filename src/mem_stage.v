@@ -3,6 +3,8 @@ module mem_stage (
     input  logic        clk,          // Clock
     input  logic        rst,          // Reset
 
+
+    
     // Inputs from EX Stage (or EX/MEM pipeline register)
     input  logic [31:0] alu_result_i, // ALU result (used as memory address)
     input  logic [31:0] rs2_data_i,   // Data from rs2 (data to be stored)

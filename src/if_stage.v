@@ -27,9 +27,10 @@ module if_stage (
         if (jump_i) begin
             // JAL uses PC + J-imm, JALR uses rs1 + I-imm
             // We assume the correct target address is provided based on is_jalr_i flag
-            next_pc = is_jalr_i ? jalr_target_addr_i : jal_target_addr_i;
-        end else if (branch_i && branch_condition_met_i) begin
-            next_pc = branch_target_addr_i; // Branch taken
+            next_pc = is_jalr_i ? jalr_target_addr_i : jal_target_addr_i; // jal_target_addr_i is the JAL target
+        end else if (branch_condition_met_i) begin // Corrected: branch_condition_met_i from EX already implies it was a branch and condition met.
+                                                 // No need to AND with branch_i from ID stage's instruction.
+            next_pc = branch_target_addr_i; // Branch taken, target from EX stage
         end else begin
             next_pc = pc_plus_4; // Default: next sequential instruction
         end

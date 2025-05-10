@@ -124,8 +124,27 @@ def encode_j_type(imm, rd, opcode):
     imm_10_1 = (imm_val >> 1)  & 0x3FF
     imm_11   = (imm_val >> 11) & 0x1
     imm_19_12= (imm_val >> 12) & 0xFF
-    encoded_imm = (imm_20 << 19) | (imm_19_12 << 11) | (imm_11 << 10) | imm_10_1
-    return (encoded_imm << 20) | (rd << 7) | opcode # Corrected: imm is bits 31:12, rd is 11:7
+    encoded_imm = (imm_20 << 19) | (imm_19_12 << 11) | (imm_11 << 10) | imm_10_1 # This is for JAL's specific imm field structure
+    # For JAL, the immediate field in the instruction is bits 31:12
+    # The structure is imm[20] (at bit 31), imm[10:1] (at bits 30:21), imm[11] (at bit 20), imm[19:12] (at bits 19:12)
+    # The value 'encoded_imm' here is already shifted and structured for bits 19:0 of the J-type immediate field.
+    # So, it should be shifted by 12 to align with instruction bits 31:12
+    return (encoded_imm << 12) | (rd << 7) | opcode # Corrected: J-type imm is bits 31:12. rd is 11:7.
+
+def encode_b_type(imm, rs2, rs1, funct3, opcode):
+    # B-type immediate: offset is 13-bit, signed, multiple of 2. imm[0] is always 0.
+    # Instruction format: imm[12|10:5] rs2 rs1 funct3 imm[4:1|11] opcode
+    imm_val = to_signed_imm(imm, 13) & 0x1FFF # Ensure 13-bit (offset is imm, scaled by 1 internally by CPU)
+    
+    imm_12   = (imm_val >> 12) & 0x1
+    imm_10_5 = (imm_val >> 5)  & 0x3F
+    imm_4_1  = (imm_val >> 1)  & 0xF
+    imm_11   = (imm_val >> 11) & 0x1
+    
+    encoded_imm_p1 = (imm_12 << 6) | imm_10_5 # imm[12|10:5] for bits 31:25
+    encoded_imm_p2 = (imm_4_1 << 1) | imm_11   # imm[4:1|11] for bits 11:7 (imm[11] is at LSB here for encoding)
+
+    return (encoded_imm_p1 << 25) | (rs2 << 20) | (rs1 << 15) | (funct3 << 12) | (encoded_imm_p2 << 7) | opcode
 
 # --- Assembler ---
 
@@ -207,7 +226,31 @@ def assemble(input_asm_file, output_hex_file):
                 
                 # JAL immediate is sign-extended, 20-bit, and scaled by 2
                 # The encode_j_type expects the actual byte offset.
-                mc = encode_j_type(offset, rd, OPCODE_JAL)
+                # JAL immediate field in instruction is already scaled by assembler (offset / 2 implicitly by structure)
+                # The immediate for JAL is 20 bits, representing a signed offset in multiples of 2 bytes.
+                # So, the 'offset' value passed to encode_j_type should be the direct byte offset.
+                # The encode_j_type will then structure it into imm[20], imm[10:1], imm[11], imm[19:12]
+                # The JAL immediate is sign-extended, bits 20. imm[0] is always 0.
+                # The value stored in instruction is offset >> 1, but structured.
+                # Let's ensure encode_j_type handles the raw byte offset correctly.
+                # The RISC-V spec shows the J-immediate as Jimm[20:1]
+                # imm_val in encode_j_type is the byte offset.
+                # The fields are: imm[20] at inst[31], imm[10:1] at inst[30:21], imm[11] at inst[20], imm[19:12] at inst[19:12]
+                # This means the immediate is structured from the byte offset.
+                mc = encode_j_type(offset, rd, OPCODE_JAL) 
+            
+            elif mnemonic == "beq": # beq rs1, rs2, label
+                rs1_reg = get_reg_num(parts[1])
+                rs2_reg = get_reg_num(parts[2])
+                target_label = parts[3]
+                if target_label not in labels:
+                    raise ValueError(f"Undefined label '{target_label}' on line {line_n}")
+                target_addr = labels[target_label]
+                offset = target_addr - addr
+                if offset % 2 != 0:
+                    raise ValueError(f"Branch offset must be multiple of 2. Target: {target_addr}, Current: {addr} on line {line_n}")
+                # B-type immediate is 13-bit signed byte offset. encode_b_type takes this byte offset.
+                mc = encode_b_type(offset, rs2_reg, rs1_reg, 0b000, OPCODE_BRANCH) # funct3 for BEQ is 000
 
             elif mnemonic == "nop": # Pseudo-instruction: nop is addi x0, x0, 0
                 mc = encode_i_type(0, REG_MAP['x0'], FUNCT3_ADDI, REG_MAP['x0'], OPCODE_IMM)

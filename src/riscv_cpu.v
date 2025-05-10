@@ -28,10 +28,10 @@ module riscv_cpu (
     logic [6:0]  id_opcode;
     logic [2:0]  id_funct3;
     logic [6:0]  id_funct7;
-    logic [31:0] id_pc;          // PC value from ID stage
-    logic [31:0] id_pc_plus4;
+    logic [31:0] id_pc;          // PC value from ID stage (PC of instruction in ID)
+    logic [31:0] id_pc_plus4;    // PC+4 of instruction in ID
 
-    // Control Unit Signals
+    // Control Unit Signals (generated based on instruction in ID)
     logic        ctrl_alu_src_a_sel;
     logic [1:0]  ctrl_alu_src_b_sel;
     logic [3:0]  ctrl_alu_op;
@@ -52,23 +52,52 @@ module riscv_cpu (
     logic [31:0] ex_branch_target_addr; // Calculated branch target from EX
     logic [31:0] ex_jalr_target_addr;   // Calculated JALR target from EX
     logic        ex_branch_condition_met; // Branch condition result from EX
-    // EX Control Signals (Passed through)
-    logic        ex_branch; // Pass branch signal through EX (needed?) - Let's use ctrl_branch directly for now
-    logic        ex_mem_read;
-    logic        ex_mem_write;
-    logic [1:0]  ex_mem_op_size;
-    logic        ex_reg_we;
-    logic [1:0]  ex_wb_mux_sel;
+    // EX Control Signals (Outputs of ID/EX Register, Inputs to EX Stage for control)
+    // These are the control signals that travel with the instruction from ID to EX
+    logic        id_ex_alu_src_a_sel_reg;
+    logic [1:0]  id_ex_alu_src_b_sel_reg;
+    logic [3:0]  id_ex_alu_op_reg;
+    logic        id_ex_mem_read_reg;
+    logic        id_ex_mem_write_reg;
+    logic        id_ex_reg_we_reg;
+    logic [1:0]  id_ex_wb_mux_sel_reg;
+    logic        id_ex_branch_reg; // Added for pipelining branch control signal
+    // Data path signals for ID/EX register
+    logic [31:0] id_ex_pc_reg;
+    logic [31:0] id_ex_pc_plus4_reg;
+    logic [31:0] id_ex_rs1_data_reg;
+    logic [31:0] id_ex_rs2_data_reg;
+    logic [31:0] id_ex_imm_reg;
+    logic [4:0]  id_ex_rd_addr_reg;
+    logic [2:0]  id_ex_funct3_reg; // For branch condition in EX
 
+    // MEM Stage Inputs (Outputs of EX/MEM Register)
+    // Control signals for MEM stage
+    logic        ex_mem_mem_read_reg;
+    logic        ex_mem_mem_write_reg;
+    logic        ex_mem_reg_we_reg;
+    logic [1:0]  ex_mem_wb_mux_sel_reg;
+    // Data path signals for EX/MEM register
+    logic [31:0] ex_mem_alu_result_reg;
+    logic [31:0] ex_mem_rs2_data_reg; // For SW
+    logic [4:0]  ex_mem_rd_addr_reg;
+    logic [31:0] ex_mem_pc_plus4_reg; // For JAL/JALR link address
 
-    // MEM Stage Outputs -> WB Stage Inputs
+    // MEM Stage Outputs -> MEM/WB Register Inputs
     logic [31:0] mem_rdata;
     logic [31:0] mem_alu_result;
     logic [4:0]  mem_rd_addr;
     logic [31:0] mem_pc_plus4;
-    // MEM Control Signals (Passed through)
-    logic        mem_reg_we;
-    logic [1:0]  mem_wb_mux_sel;
+
+    // WB Stage Inputs (Outputs of MEM/WB Register)
+    // Control signals for WB stage
+    logic        mem_wb_reg_we_reg;
+    logic [1:0]  mem_wb_wb_mux_sel_reg;
+    // Data path signals for MEM/WB register
+    logic [31:0] mem_wb_mem_rdata_reg;
+    logic [31:0] mem_wb_alu_result_reg;
+    logic [4:0]  mem_wb_rd_addr_reg;
+    logic [31:0] mem_wb_pc_plus4_reg;
 
     // WB Stage Outputs -> ID Stage Inputs (Register File Write)
     logic        wb_reg_we;
@@ -139,90 +168,159 @@ module riscv_cpu (
     );
 
     // Calculate JAL target address and is_jalr flag
-    // JAL target = PC + J-immediate (id_imm contains J-imm when opcode is JAL)
-    assign jal_target_addr = if_pc + id_imm;
+    // JAL target = PC_of_JAL_instruction + J-immediate
+    // PC_of_JAL_instruction is id_pc (output from id_stage, which is the pc_i input to id_stage)
+    // id_imm is the sign-extended byte offset for JAL from id_stage
+    assign jal_target_addr = id_pc + id_imm; // Corrected: Use id_pc (PC of instruction in ID)
     assign is_jalr = (id_opcode == 7'b1100111); // Check if opcode is JALR
+
+    // --- Pipeline Registers ---
+
+    // ID/EX Pipeline Register
+    always_ff @(posedge clk or posedge rst) begin
+        if (rst) begin
+            id_ex_pc_reg            <= 32'b0;
+            id_ex_pc_plus4_reg      <= 32'b0;
+            id_ex_rs1_data_reg      <= 32'b0;
+            id_ex_rs2_data_reg      <= 32'b0;
+            id_ex_imm_reg           <= 32'b0;
+            id_ex_rd_addr_reg       <= 5'b0;
+            id_ex_funct3_reg        <= 3'b0;
+            // Control signals reset to NOP-like state
+            id_ex_alu_src_a_sel_reg <= 1'b1; // rs1
+            id_ex_alu_src_b_sel_reg <= 2'b00; // rs2
+            id_ex_alu_op_reg        <= 4'b0000; // ADD (NOP if rd=x0)
+            id_ex_mem_read_reg      <= 1'b0;
+            id_ex_mem_write_reg     <= 1'b0;
+            id_ex_reg_we_reg        <= 1'b0; // No register write
+            id_ex_wb_mux_sel_reg    <= 2'b00; // ALU result
+            id_ex_branch_reg        <= 1'b0; // Default branch to false
+        end else begin // Changed { to begin
+            // Latch values from ID stage and Control Unit
+            id_ex_pc_reg            <= id_pc;
+            id_ex_pc_plus4_reg      <= id_pc_plus4;
+            id_ex_rs1_data_reg      <= id_rs1_data;
+            id_ex_rs2_data_reg      <= id_rs2_data;
+            id_ex_imm_reg           <= id_imm;
+            id_ex_rd_addr_reg       <= id_rd_addr;
+            id_ex_funct3_reg        <= id_funct3;
+            // Latch control signals
+            id_ex_alu_src_a_sel_reg <= ctrl_alu_src_a_sel;
+            id_ex_alu_src_b_sel_reg <= ctrl_alu_src_b_sel;
+            id_ex_alu_op_reg        <= ctrl_alu_op;
+            id_ex_mem_read_reg      <= ctrl_mem_read;
+            id_ex_mem_write_reg     <= ctrl_mem_write;
+            id_ex_reg_we_reg        <= ctrl_reg_we;
+            id_ex_wb_mux_sel_reg    <= ctrl_wb_mux_sel;
+            id_ex_branch_reg        <= ctrl_branch; // Latch branch signal
+        end
+    end
 
     // EX Stage (includes ALU)
     ex_stage ex_stage_inst (
         .clk            (clk),
         .rst            (rst),
-        .pc_i           (id_pc),        // Connect PC from ID stage
-        .rs1_data_i     (id_rs1_data),
-        .rs2_data_i     (id_rs2_data),
-        .imm_i          (id_imm),
-        .rd_addr_i      (id_rd_addr),
-        .pc_plus4_i     (id_pc_plus4),
-        .alu_src_a_sel_i(ctrl_alu_src_a_sel), // From Control Unit
-        .alu_src_b_sel_i(ctrl_alu_src_b_sel), // From Control Unit
-        .alu_op_i       (ctrl_alu_op),       // From Control Unit
-        .funct3_i       (id_funct3),         // Pass funct3 for branch evaluation
-        .branch_i       (ctrl_branch),       // Pass branch control signal
+        .pc_i           (id_ex_pc_reg),        // From ID/EX Reg
+        .rs1_data_i     (id_ex_rs1_data_reg),  // From ID/EX Reg
+        .rs2_data_i     (id_ex_rs2_data_reg),  // From ID/EX Reg
+        .imm_i          (id_ex_imm_reg),       // From ID/EX Reg
+        .rd_addr_i      (id_ex_rd_addr_reg),   // From ID/EX Reg
+        .pc_plus4_i     (id_ex_pc_plus4_reg),  // From ID/EX Reg
+        .alu_src_a_sel_i(id_ex_alu_src_a_sel_reg), // From ID/EX Reg
+        .alu_src_b_sel_i(id_ex_alu_src_b_sel_reg), // From ID/EX Reg
+        .alu_op_i       (id_ex_alu_op_reg),       // From ID/EX Reg
+        .funct3_i       (id_ex_funct3_reg),       // From ID/EX Reg (for branch)
+        .branch_i       (id_ex_branch_reg),       // Corrected: Use pipelined branch signal from ID/EX Reg
         .alu_result_o   (ex_alu_result),
         .alu_zero_o     (ex_alu_zero),
-        .rs2_data_o     (ex_rs2_data),
-        .rd_addr_o      (ex_rd_addr),
-        .pc_plus4_o     (ex_pc_plus4),
-        .branch_target_addr_o (ex_branch_target_addr), // Output for IF stage
-        .jalr_target_addr_o   (ex_jalr_target_addr),   // Output for IF stage
-        .branch_condition_met_o(ex_branch_condition_met) // Output for IF stage
-        // Pass through control signals
-        // .mem_read_o     (ex_mem_read), // Need to add these pass-throughs in ex_stage.v
-        // .mem_write_o    (ex_mem_write),
-        // .mem_op_size_o  (ex_mem_op_size),
-        // .reg_we_o       (ex_reg_we),
-        // .wb_mux_sel_o   (ex_wb_mux_sel)
+        .rs2_data_o     (ex_rs2_data),         // Data to forward to MEM for SW
+        .rd_addr_o      (ex_rd_addr),          // rd_addr to forward
+        .pc_plus4_o     (ex_pc_plus4),         // pc_plus4 to forward
+        .branch_target_addr_o (ex_branch_target_addr),
+        .jalr_target_addr_o   (ex_jalr_target_addr),
+        .branch_condition_met_o(ex_branch_condition_met)
     );
-    // Temporary pass-through for control signals until added to EX stage ports
-    // Note: In a pipelined design, these would be registered in ID/EX register
-    assign ex_mem_read = ctrl_mem_read;
-    assign ex_mem_write = ctrl_mem_write;
-    // assign ex_mem_op_size = ctrl_mem_op_size; // Assign when available
-    assign ex_reg_we = ctrl_reg_we;
-    assign ex_wb_mux_sel = ctrl_wb_mux_sel;
 
+    // EX/MEM Pipeline Register
+    always_ff @(posedge clk or posedge rst) begin
+        if (rst) begin
+            ex_mem_alu_result_reg <= 32'b0;
+            ex_mem_rs2_data_reg   <= 32'b0;
+            ex_mem_rd_addr_reg    <= 5'b0;
+            ex_mem_pc_plus4_reg   <= 32'b0;
+            // Control signals
+            ex_mem_mem_read_reg   <= 1'b0;
+            ex_mem_mem_write_reg  <= 1'b0;
+            ex_mem_reg_we_reg     <= 1'b0;
+            ex_mem_wb_mux_sel_reg <= 2'b00;
+        end else begin // Changed { to begin
+            ex_mem_alu_result_reg <= ex_alu_result;
+            ex_mem_rs2_data_reg   <= ex_rs2_data; // Pass rs2_data from EX for SW in MEM
+            ex_mem_rd_addr_reg    <= ex_rd_addr;  // Pass rd_addr from EX
+            ex_mem_pc_plus4_reg   <= ex_pc_plus4; // Pass pc_plus4 from EX
+            // Control signals from ID/EX register, passed through EX (or re-evaluated if EX modifies them)
+            // For simplicity, assume EX stage doesn't change these control signals, just passes from ID/EX
+            ex_mem_mem_read_reg   <= id_ex_mem_read_reg;
+            ex_mem_mem_write_reg  <= id_ex_mem_write_reg;
+            ex_mem_reg_we_reg     <= id_ex_reg_we_reg;
+            ex_mem_wb_mux_sel_reg <= id_ex_wb_mux_sel_reg;
+        end
+    end
 
     // MEM Stage
     mem_stage mem_stage_inst (
         .clk            (clk),
         .rst            (rst),
-        .alu_result_i   (ex_alu_result),
-        .rs2_data_i     (ex_rs2_data),
-        .rd_addr_i      (ex_rd_addr),
-        .pc_plus4_i     (ex_pc_plus4),
-        .mem_read_i     (ex_mem_read),     // From Control Unit (passed via EX)
-        .mem_write_i    (ex_mem_write),    // From Control Unit (passed via EX)
-        // .mem_op_size_i  (ex_mem_op_size), // From Control Unit (passed via EX) - Add later
-        .data_addr_o    (data_addr_o),     // Connect to top-level memory interface
-        .data_wdata_o   (data_wdata_o),    // Connect to top-level memory interface
-        .data_we_o      (data_we_o),       // Connect to top-level memory interface
-        .data_rdata_i   (data_rdata_i),    // Connect to top-level memory interface
-        .mem_rdata_o    (mem_rdata),
-        .alu_result_o   (mem_alu_result),
-        .rd_addr_o      (mem_rd_addr),
-        .pc_plus4_o     (mem_pc_plus4)
-        // Pass through control signals
-        // .reg_we_o       (mem_reg_we), // Need to add these pass-throughs in mem_stage.v
-        // .wb_mux_sel_o   (mem_wb_mux_sel)
+        .alu_result_i   (ex_mem_alu_result_reg), // From EX/MEM Reg
+        .rs2_data_i     (ex_mem_rs2_data_reg),   // From EX/MEM Reg (for SW)
+        .rd_addr_i      (ex_mem_rd_addr_reg),    // From EX/MEM Reg
+        .pc_plus4_i     (ex_mem_pc_plus4_reg),   // From EX/MEM Reg
+        .mem_read_i     (ex_mem_mem_read_reg),   // From EX/MEM Reg
+        .mem_write_i    (ex_mem_mem_write_reg),  // From EX/MEM Reg
+        .data_addr_o    (data_addr_o),
+        .data_wdata_o   (data_wdata_o),
+        .data_we_o      (data_we_o),
+        .data_rdata_i   (data_rdata_i),
+        .mem_rdata_o    (mem_rdata),             // Output to MEM/WB Reg
+        .alu_result_o   (mem_alu_result),        // Pass through ALU result to MEM/WB Reg
+        .rd_addr_o      (mem_rd_addr),           // Pass through rd_addr to MEM/WB Reg
+        .pc_plus4_o     (mem_pc_plus4)           // Pass through pc_plus4 to MEM/WB Reg
     );
-    // Temporary pass-through for control signals until added to MEM stage ports
-    // Note: In a pipelined design, these would be registered in EX/MEM register
-    assign mem_reg_we = ex_reg_we;         // From Control Unit (passed via EX)
-    assign mem_wb_mux_sel = ex_wb_mux_sel; // From Control Unit (passed via EX)
+
+    // MEM/WB Pipeline Register
+    always_ff @(posedge clk or posedge rst) begin
+        if (rst) begin
+            mem_wb_mem_rdata_reg    <= 32'b0;
+            mem_wb_alu_result_reg <= 32'b0;
+            mem_wb_rd_addr_reg    <= 5'b0;
+            mem_wb_pc_plus4_reg   <= 32'b0;
+            // Control signals
+            mem_wb_reg_we_reg     <= 1'b0;
+            mem_wb_wb_mux_sel_reg <= 2'b00;
+        end else begin // Changed { to begin
+            mem_wb_mem_rdata_reg    <= mem_rdata;      // Data from memory read
+            mem_wb_alu_result_reg <= mem_alu_result;  // ALU result from MEM stage
+            mem_wb_rd_addr_reg    <= mem_rd_addr;     // rd_addr from MEM stage
+            mem_wb_pc_plus4_reg   <= mem_pc_plus4;    // pc_plus4 from MEM stage
+            // Control signals from EX/MEM register, passed through MEM
+            mem_wb_reg_we_reg     <= ex_mem_reg_we_reg;
+            mem_wb_wb_mux_sel_reg <= ex_mem_wb_mux_sel_reg;
+        end
+    end
 
     // WB Stage
     wb_stage wb_stage_inst (
         .clk            (clk),
         .rst            (rst),
-        .mem_rdata_i    (mem_rdata),
-        .alu_result_i   (mem_alu_result),
-        .rd_addr_i      (mem_rd_addr),
-        .pc_plus4_i     (mem_pc_plus4),
-        .reg_we_i       (mem_reg_we),      // From Control Unit (passed via EX, MEM)
-        .wb_mux_sel_i   (mem_wb_mux_sel),  // From Control Unit (passed via EX, MEM)
-        .wb_reg_we_o    (wb_reg_we),       // To ID stage (Reg File)
-        .wb_rd_addr_o   (wb_rd_addr),      // To ID stage (Reg File)
-        .wb_rd_data_o   (wb_rd_data)       // To ID stage (Reg File)
+        .mem_rdata_i    (mem_wb_mem_rdata_reg),    // From MEM/WB Reg
+        .alu_result_i   (mem_wb_alu_result_reg), // From MEM/WB Reg
+        .rd_addr_i      (mem_wb_rd_addr_reg),    // From MEM/WB Reg
+        .pc_plus4_i     (mem_wb_pc_plus4_reg),   // From MEM/WB Reg
+        .reg_we_i       (mem_wb_reg_we_reg),     // From MEM/WB Reg
+        .wb_mux_sel_i   (mem_wb_wb_mux_sel_reg), // From MEM/WB Reg
+        .wb_reg_we_o    (wb_reg_we),
+        .wb_rd_addr_o   (wb_rd_addr),
+        .wb_rd_data_o   (wb_rd_data)
     );
 
     // Connect IF stage PC output to instruction memory address
