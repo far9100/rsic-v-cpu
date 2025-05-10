@@ -135,15 +135,16 @@ module riscv_cpu_tb;
             end
         join
 
-        // --- Verification (Basic Check) ---
+        // --- Simplified Verification ---
         if (dut.instr_addr_o == 32'h00000020) begin
-            $display("Verification PASSED: PC reached the halt loop.");
+            $display("Verification PASSED: PC reached the halt loop at 0x20.");
         end else begin
             $error("Verification FAILED: PC did not reach the halt loop (PC = 0x%h).", dut.instr_addr_o);
         end
 
         // Dump final data memory state (first 10 elements of the array)
-        dump_data_memory(32'h40, 10);
+        $display("Dumping data memory (word address 64 for 10 words):");
+        dump_data_memory(64, 10); // Word address 64 is 0x40
 
         $display("Simulation finished at time %0t", $time);
         $finish; // End simulation
@@ -153,11 +154,7 @@ module riscv_cpu_tb;
     task dump_data_memory (input [31:0] start_word_addr, input [31:0] num_words); // Use integer for compatibility
         $display("--- Data Memory Dump (Word Addr: %0d to %0d) ---", start_word_addr, start_word_addr + num_words - 1);
         for (integer i = 0; i < num_words; i++) begin // Use integer for compatibility
-            $display("Mem[0x%h (Word %0d)]: 0x%h (%0d)",
-                     (start_word_addr + i) * 4, // Byte address
-                     start_word_addr + i,       // Word address
-                     data_mem[start_word_addr + i],
-                     data_mem[start_word_addr + i]);
+            $display("Mem[0x%h (Word %0d)]: 0x%h (%0d)", (start_word_addr + i) * 4, start_word_addr + i, data_mem[start_word_addr + i], data_mem[start_word_addr + i]);
         end
         $display("--------------------------------------------------");
     endtask
